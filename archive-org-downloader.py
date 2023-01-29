@@ -17,10 +17,11 @@ def display_error(response, message):
 
 def get_book_infos(session, url):
 	r = session.get(url).text
-	infos_url = "https:" + r.split('bookManifestUrl="')[1].split('"\n')[0]
+	#infos_url = "https:" + r.split('bookManifestUrl="')[1].split('"\n')[0]
+	infos_url = r.split('liner_notes_url":"')[1].split('"')[0]
 	response = session.get(infos_url)
 	data = response.json()['data']
-	title = data['brOptions']['bookTitle'].strip().replace(" ", "_")
+	title = data['brOptions']['bookId'].strip().replace(" ", "_")
 	title = ''.join( c for c in title if c not in '<>:"/\\|?*' ) # Filter forbidden chars in directory names (Windows & Linux)
 	title = title[:150] # Trim the title to avoid long file names	
 	metadata = data['metadata']
@@ -144,7 +145,7 @@ def download(session, n_threads, directory, links, scale, book_id):
 
 def make_pdf(pdf, title, directory):
 	file = title+".pdf"
-	# Handle the case where multiple books with the same name are downloaded
+	# Handle the case where multiple books with the same name are downlresolutionoaded
 	i = 1
 	while os.path.isfile(os.path.join(directory, file)):
 		file = f"{title}({i}).pdf"
@@ -162,7 +163,7 @@ if __name__ == "__main__":
 	my_parser.add_argument('-u', '--url', help='Link to the book (https://archive.org/details/XXXX). You can use this argument several times to download multiple books', action='append', type=str)
 	my_parser.add_argument('-d', '--dir', help='Output directory', type=str)
 	my_parser.add_argument('-f', '--file', help='File where are stored the URLs of the books to download', type=str)
-	my_parser.add_argument('-r', '--resolution', help='Image resolution (10 to 0, 0 is the highest), [default 3]', type=int, default=3)
+	my_parser.add_argument('-r', '--resolution', help='Image resolution (10 to 0, 0 is the highest), [default 3]', type=int, default=5)
 	my_parser.add_argument('-t', '--threads', help="Maximum number of threads, [default 50]", type=int, default=50)
 	my_parser.add_argument('-j', '--jpg', help="Output to individual JPG's rather than a PDF", action='store_true')
 
@@ -203,13 +204,14 @@ if __name__ == "__main__":
 			exit()
 
 	print(f"{len(urls)} Book(s) to download")
-	session = login(email, password)
+	session = requests.Session()
+	#session = login(email, password)
 
 	for url in urls:
 		book_id = list(filter(None, url.split("/")))[3]
 		print("="*40)
 		print(f"Current book: https://archive.org/details/{book_id}")
-		session = loan(session, book_id)
+		#session = loan(session, book_id)
 		title, links, metadata = get_book_infos(session, url)
 
 		directory = os.path.join(d, title)
@@ -264,4 +266,4 @@ if __name__ == "__main__":
 			except OSError as e:
 				print ("Error: %s - %s." % (e.filename, e.strerror))
 
-		return_loan(session, book_id)
+		#return_loan(session, book_id)
