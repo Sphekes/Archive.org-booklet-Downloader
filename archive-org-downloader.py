@@ -9,6 +9,8 @@ import os
 import sys
 import shutil
 
+from get_links import get_links
+
 def display_error(response, message):
 	print(message)
 	print(response)
@@ -16,19 +18,11 @@ def display_error(response, message):
 	exit()
 
 def get_book_infos(session, url):
-	r = session.get(url).text
-	#infos_url = "https:" + r.split('bookManifestUrl="')[1].split('"\n')[0]
-	infos_url = r.split('liner_notes_url":"')[1].split('"')[0]
-	response = session.get(infos_url)
-	data = response.json()['data']
-	title = data['brOptions']['bookId'].strip().replace(" ", "_")
+	title = url.split('/')[-1].strip().replace(" ", "_")
 	title = ''.join( c for c in title if c not in '<>:"/\\|?*' ) # Filter forbidden chars in directory names (Windows & Linux)
 	title = title[:150] # Trim the title to avoid long file names	
-	metadata = data['metadata']
-	links = []
-	for item in data['brOptions']['data']:
-		for page in item:
-			links.append(page['uri'])
+	metadata = {}
+	links = get_links(url)
 
 	if len(links) > 1:
 		print(f"[+] Found {len(links)} pages")
@@ -43,61 +37,6 @@ def format_data(content_type, fields):
 		data += f"--{content_type}\x0d\x0aContent-Disposition: form-data; name=\"{name}\"\x0d\x0a\x0d\x0a{value}\x0d\x0a"
 	data += content_type+"--"
 	return data
-
-def login(email, password):
-	session = requests.Session()
-	session.get("https://archive.org/account/login")
-	content_type = "----WebKitFormBoundary"+"".join(random.sample(string.ascii_letters + string.digits, 16))
-
-	headers = {'Content-Type': 'multipart/form-data; boundary='+content_type}
-	data = format_data(content_type, {"username":email, "password":password, "submit_by_js":"true"})
-
-	response = session.post("https://archive.org/account/login", data=data, headers=headers)
-	if "bad_login" in response.text:
-		print("[-] Invalid credentials!")
-		exit()
-	elif "Successful login" in response.text:
-		print("[+] Successful login")
-		return session
-	else:
-		display_error(response, "[-] Error while login:")
-
-def loan(session, book_id, verbose=True):
-	data = {
-		"action": "grant_access",
-		"identifier": book_id
-	}
-	response = session.post("https://archive.org/services/loans/loan/searchInside.php", data=data)
-	data['action'] = "browse_book"
-	response = session.post("https://archive.org/services/loans/loan/", data=data)
-
-	if response.status_code == 400 :
-		if response.json()["error"] == "This book is not available to borrow at this time. Please try again later.":
-			print("This book doesn't need to be borrowed")
-			return session
-		else :
-			display_error(response, "Something went wrong when trying to borrow the book.")
-
-	data['action'] = "create_token"
-	response = session.post("https://archive.org/services/loans/loan/", data=data)
-
-	if "token" in response.text:
-		if verbose:
-			print("[+] Successful loan")
-		return session
-	else:
-		display_error(response, "Something went wrong when trying to borrow the book, maybe you can't borrow this book.")
-
-def return_loan(session, book_id):
-	data = {
-		"action": "return_loan",
-		"identifier": book_id
-	}
-	response = session.post("https://archive.org/services/loans/loan/", data=data)
-	if response.status_code == 200 and response.json()["success"]:
-		print("[+] Book returned")
-	else:
-		display_error(response, "Something went wrong when trying to return the book")
 
 def image_name(pages, page, directory):
 	return f"{directory}/{(len(str(pages)) - len(str(page))) * '0'}{page}.jpg"
@@ -115,7 +54,7 @@ def download_one_image(session, link, i, directory, book_id, pages):
 		try:
 			response = session.get(link, headers=headers)
 			if response.status_code == 403:
-				session = loan(session, book_id, verbose=False)
+				# session = loan(session, book_id, verbose=False)
 				raise Exception("Borrow again")
 			elif response.status_code == 200:
 				retry = False
@@ -158,8 +97,6 @@ def make_pdf(pdf, title, directory):
 if __name__ == "__main__":
 
 	my_parser = argparse.ArgumentParser()
-	my_parser.add_argument('-e', '--email', help='Your archive.org email', type=str, required=True)
-	my_parser.add_argument('-p', '--password', help='Your archive.org password', type=str, required=True)
 	my_parser.add_argument('-u', '--url', help='Link to the book (https://archive.org/details/XXXX). You can use this argument several times to download multiple books', action='append', type=str)
 	my_parser.add_argument('-d', '--dir', help='Output directory', type=str)
 	my_parser.add_argument('-f', '--file', help='File where are stored the URLs of the books to download', type=str)
@@ -175,8 +112,6 @@ if __name__ == "__main__":
 	if args.url is None and args.file is None:
 		my_parser.error("At least one of --url and --file required")
 
-	email = args.email
-	password = args.password
 	scale = args.resolution
 	n_threads = args.threads
 	d = args.dir
@@ -205,13 +140,11 @@ if __name__ == "__main__":
 
 	print(f"{len(urls)} Book(s) to download")
 	session = requests.Session()
-	#session = login(email, password)
 
 	for url in urls:
 		book_id = list(filter(None, url.split("/")))[3]
 		print("="*40)
 		print(f"Current book: https://archive.org/details/{book_id}")
-		#session = loan(session, book_id)
 		title, links, metadata = get_book_infos(session, url)
 
 		directory = os.path.join(d, title)
@@ -266,4 +199,4 @@ if __name__ == "__main__":
 			except OSError as e:
 				print ("Error: %s - %s." % (e.filename, e.strerror))
 
-		#return_loan(session, book_id)
+
